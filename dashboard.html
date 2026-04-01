@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAF 戰情儀表板</title>
+    <!-- 引入 Tailwind CSS (快速排版) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Chart.js (畫圖表) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; } /* 資安風暗色系 */
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 flex items-center justify-between border-b border-gray-700 pb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-green-400 flex items-center gap-2">
+                    🛡️ 輕量級 WAF 戰情儀表板
+                </h1>
+                <p class="text-gray-400 mt-2">即時監控阻擋下來的惡意流量與攻擊趨勢</p>
+            </div>
+            <button onclick="fetchData()" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded shadow transition">
+                🔄 重新整理
+            </button>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- 左側：攻擊類型圓餅圖 -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 col-span-1 flex flex-col items-center">
+                <h2 class="text-xl font-semibold mb-4 text-gray-200">攻擊類型分佈</h2>
+                <div class="relative w-full max-w-[250px]">
+                    <canvas id="attackPieChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 右側：最新攻擊日誌列表 -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 col-span-1 md:col-span-2 overflow-x-auto">
+                <h2 class="text-xl font-semibold mb-4 text-gray-200">最新攔截紀錄 (Top 10)</h2>
+                <table class="w-full text-left text-sm text-gray-400">
+                    <thead class="text-xs text-gray-300 uppercase bg-gray-700">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 rounded-tl-lg">時間</th>
+                            <th scope="col" class="px-4 py-3">來源 IP</th>
+                            <th scope="col" class="px-4 py-3">類型</th>
+                            <th scope="col" class="px-4 py-3">路徑 (URI)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody" class="divide-y divide-gray-700">
+                        <!-- 資料會透過 JS 動態填入 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pieChart = null;
+
+        // 向 Go WAF 的 API 請求資料
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                renderChart(data.stats || []);
+                renderTable(data.recents || []);
+            } catch (error) {
+                console.error("無法取得資料", error);
+                alert("取得資料失敗，請確認 WAF 伺服器是否正常運行。");
+            }
+        }
+
+        // 渲染圓餅圖
+        function renderChart(stats) {
+            const labels = stats.map(s => s.type);
+            const counts = stats.map(s => s.count);
+            
+            const ctx = document.getElementById('attackPieChart').getContext('2d');
+            
+            // 如果圖表已存在，先銷毀才能重新繪製
+            if (pieChart) pieChart.destroy();
+            
+            pieChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: counts,
+                        backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981'],
+                        borderColor: '#1f2937',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+        }
+
+        // 渲染表格
+        function renderTable(recents) {
+            const tbody = document.getElementById('logTableBody');
+            tbody.innerHTML = ''; // 清空現有資料
+            
+            recents.forEach(log => {
+                // 處理攻擊類型的顏色標籤
+                let typeColor = 'bg-red-900 text-red-300';
+                if (log.attack_type === 'Rate Limit DDoS') typeColor = 'bg-yellow-900 text-yellow-300';
+                
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-700 transition-colors';
+                tr.innerHTML = `
+                    <td class="px-4 py-3 whitespace-nowrap">${new Date(log.timestamp).toLocaleString('zh-TW')}</td>
+                    <td class="px-4 py-3 font-mono text-xs text-blue-400">${log.source_ip}</td>
+                    <td class="px-4 py-3">
+                        <span class="text-xs font-medium px-2.5 py-0.5 rounded ${typeColor}">${log.attack_type}</span>
+                    </td>
+                    <td class="px-4 py-3 font-mono text-xs truncate max-w-[200px]" title="${log.uri}">${log.uri}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 頁面載入時自動抓取一次資料
+        window.onload = fetchData;
+    </script>
+</body>
+</html>
